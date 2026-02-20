@@ -1,8 +1,9 @@
 let currentStep = 1;
 let record = {};
 let processSteps = [];
+let mapInstance = null;
 
-/* ------------------ VIEW CONTROL ------------------ */
+/* ---------- NAVIGATION ---------- */
 
 function hideAll() {
   document.getElementById("home").classList.add("hidden");
@@ -38,8 +39,6 @@ function startNew() {
   renderStep();
 }
 
-/* ------------------ GEO ------------------ */
-
 function captureGeo() {
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(pos => {
@@ -51,7 +50,7 @@ function captureGeo() {
   }
 }
 
-/* ------------------ ONTOLOGY ------------------ */
+/* ---------- ONTOLOGY ---------- */
 
 const ontologyOptions = {
   domain: ["Textile", "Ceramic", "Metal", "Wood", "Natural Fiber"],
@@ -59,7 +58,7 @@ const ontologyOptions = {
   transmission: ["Familial", "Apprenticeship", "Guild", "Informal"]
 };
 
-/* ------------------ WIZARD ------------------ */
+/* ---------- WIZARD ---------- */
 
 function renderStep() {
 
@@ -72,12 +71,8 @@ function renderStep() {
     content.innerHTML = `
       <h2>Craft Identification</h2>
       <input id="craft_name" placeholder="Craft Name"/>
-      <select id="domain">
-        ${ontologyOptions.domain.map(d=>`<option>${d}</option>`)}
-      </select>
-      <select id="function">
-        ${ontologyOptions.function.map(f=>`<option>${f}</option>`)}
-      </select>
+      <select id="domain">${ontologyOptions.domain.map(d=>`<option>${d}</option>`)}</select>
+      <select id="function">${ontologyOptions.function.map(f=>`<option>${f}</option>`)}</select>
     `;
   }
 
@@ -86,24 +81,22 @@ function renderStep() {
       <h2>Practitioner</h2>
       <input id="practitioner" placeholder="Name"/>
       <input id="community" placeholder="Community"/>
-      <select id="transmission">
-        ${ontologyOptions.transmission.map(t=>`<option>${t}</option>`)}
-      </select>
+      <select id="transmission">${ontologyOptions.transmission.map(t=>`<option>${t}</option>`)}</select>
     `;
   }
 
   if (currentStep === 3) {
     content.innerHTML = `
       <h2>Materials</h2>
-      <textarea id="materials" placeholder="Comma separated"></textarea>
+      <textarea id="materials"></textarea>
     `;
   }
 
   if (currentStep === 4) {
     content.innerHTML = `
       <h2>Process Steps</h2>
-      <textarea id="step_desc" placeholder="Describe step"></textarea>
-      <input type="file" id="step_img" accept="image/*"/>
+      <textarea id="step_desc"></textarea>
+      <input type="file" id="step_img" accept="image/*" capture="environment"/>
       <button onclick="addProcessStep()">Add Step</button>
       <div id="step-list"></div>
     `;
@@ -117,8 +110,7 @@ function renderStep() {
         <input type="checkbox" id="consent_check">
         Verbal consent obtained
       </label>
-      <canvas id="signature" width="300" height="100"
-       style="border:1px solid #ccc;"></canvas>
+      <canvas id="signature" width="300" height="100"></canvas>
       <button onclick="clearSignature()">Clear Signature</button>
     `;
     initSignature();
@@ -135,9 +127,7 @@ function renderStep() {
 function nextStep() {
 
   if (currentStep === 1) {
-    record.craft = {
-      name: document.getElementById("craft_name").value
-    };
+    record.craft = { name: document.getElementById("craft_name").value };
     record.ontology.domain = document.getElementById("domain").value;
     record.ontology.function = document.getElementById("function").value;
   }
@@ -182,7 +172,7 @@ function prevStep() {
   }
 }
 
-/* ------------------ PROCESS STEPS ------------------ */
+/* ---------- PROCESS STEPS ---------- */
 
 function addProcessStep() {
   const desc = document.getElementById("step_desc").value;
@@ -214,20 +204,45 @@ function renderProcessList() {
   `).join("");
 }
 
-/* ------------------ SIGNATURE ------------------ */
+/* ---------- SIGNATURE (TOUCH SAFE) ---------- */
 
 function initSignature() {
   const canvas = document.getElementById("signature");
   const ctx = canvas.getContext("2d");
   let drawing = false;
 
-  canvas.onmousedown = () => drawing = true;
-  canvas.onmouseup = () => drawing = false;
-  canvas.onmousemove = e => {
+  function start(e) {
+    drawing = true;
+    draw(e);
+  }
+
+  function end() {
+    drawing = false;
+    ctx.beginPath();
+  }
+
+  function draw(e) {
     if (!drawing) return;
-    ctx.lineTo(e.offsetX, e.offsetY);
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#000";
+
+    ctx.lineTo(x, y);
     ctx.stroke();
-  };
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  }
+
+  canvas.addEventListener("mousedown", start);
+  canvas.addEventListener("mouseup", end);
+  canvas.addEventListener("mousemove", draw);
+  canvas.addEventListener("touchstart", start);
+  canvas.addEventListener("touchend", end);
+  canvas.addEventListener("touchmove", draw);
 }
 
 function clearSignature() {
@@ -235,19 +250,23 @@ function clearSignature() {
   canvas.getContext("2d").clearRect(0,0,canvas.width,canvas.height);
 }
 
-/* ------------------ SAVE ------------------ */
+/* ---------- SAVE ---------- */
 
 async function finalizeRecord() {
+  if (!record.craft.name) {
+    alert("Craft name required.");
+    return;
+  }
+
   record.last_modified = new Date().toISOString();
   record.record_hash = await hashObject(record);
 
   saveRecord(record);
-
   alert("Record saved successfully.");
-  viewRecords();  // CRITICAL FIX
+  goHome();
 }
 
-/* ------------------ RECORD LIST ------------------ */
+/* ---------- RECORD VIEW ---------- */
 
 function viewRecords() {
   hideAll();
